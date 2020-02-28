@@ -15,8 +15,17 @@ jobs:
         openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
         parameters: '{"username": "${{ secrets.OPENSHIFT_USERNAME }}", "password": "${{ secrets.OPENSHIFT_PASSWORD }}", "acceptUntrustedCerts": "true"}'
         cmd: |          
+          'project ${{secrets.OPENSHIFT_PROJECT}}'
           'new-app https://github.com/${{github.REPOSITORY}} --name ${{secrets.OPENSHIFT_APPLICATION_NAME}} -n ${{secrets.OPENSHIFT_PROJECT}}'
-          'expose svc/${{secrets.OPENSHIFT_APPLICATION_NAME}} -n ${{secrets.OPENSHIFT_PROJECT}}'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/kafka-endpoint'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/kafka-topic'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/kafka-topic'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/mysql-master-connections'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/mysql-slave-connections'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/s3-bucket'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/s3-endpoint'
+          'set env dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --from configmaps/s3-key'
+          'wait --for=condition=available dc/${{secrets.OPENSHIFT_APPLICATION_NAME}} --timeout=120s'
       continue-on-error: true
     - name: Trigger Build
       uses: redhat-developer/openshift-actions@v1.1
@@ -25,4 +34,24 @@ jobs:
         openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
         parameters: '{"username": "${{ secrets.OPENSHIFT_USERNAME }}", "password": "${{ secrets.OPENSHIFT_PASSWORD }}", "acceptUntrustedCerts": "true"}'
         cmd: |          
-          'start-build ${{secrets.OPENSHIFT_APPLICATION_NAME}} -n ${{secrets.OPENSHIFT_PROJECT}} '
+          'start-build ${{secrets.OPENSHIFT_APPLICATION_NAME}} -n ${{secrets.OPENSHIFT_PROJECT}} --wait'
+    - name: Add Kafka topic
+      uses: redhat-developer/openshift-actions@v1.1
+      with:
+        version: '3.11.36'
+        openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
+        parameters: '{"username": "${{ secrets.OPENSHIFT_USERNAME }}", "password": "${{ secrets.OPENSHIFT_PASSWORD }}", "acceptUntrustedCerts": "true"}'
+        cmd: |          
+          'project ${{secrets.OPENSHIFT_PROJECT}}'
+          'run kafka-add-topic-${{secrets.OPENSHIFT_APPLICATION_NAME}} -ti --image=strimzi/kafka:0.14.0-kafka-2.3.0 --rm=true --restart=Never -- bin/kafka-topics.sh --create --bootstrap-server my-cluster-kafka-bootstrap.spai.svc:9092 --replication-factor 1 --partitions 1 --topic face-result-${{secrets.OPENSHIFT_APPLICATION_NAME}}'
+      continue-on-error: true
+    - name: Change partition count of Kafka topic
+      uses: redhat-developer/openshift-actions@v1.1
+      with:
+        version: '3.11.36'
+        openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
+        parameters: '{"username": "${{ secrets.OPENSHIFT_USERNAME }}", "password": "${{ secrets.OPENSHIFT_PASSWORD }}", "acceptUntrustedCerts": "true"}'
+        cmd: |          
+          'project ${{secrets.OPENSHIFT_PROJECT}}'
+          'run kafka-change-partition-topic-${{secrets.OPENSHIFT_APPLICATION_NAME}} -ti --image=strimzi/kafka:0.14.0-kafka-2.3.0 --rm=true --restart=Never -- bin/kafka-topics.sh --bootstrap-server my-cluster-kafka-bootstrap.spai.svc:9092 --alter --partitions 15 --topic face-result-${{secrets.OPENSHIFT_APPLICATION_NAME}}'
+      continue-on-error: true
